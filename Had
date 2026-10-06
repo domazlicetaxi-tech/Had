@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <title>Taxi Green Domažlice - Fullscreen & Touch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        body {
+            background-color: #2c3e50;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding-top: 20px;
+            /* Zabrání výběru textu při klikání */
+            user-select: none; 
+            -webkit-user-select: none;
+        }
+        h1 {
+            color: #2ecc71;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            text-align: center;
+            font-size: 24px;
+        }
+        .dashboard {
+            background-color: #1a252f;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 2px solid #34495e;
+            width: 90%;
+            max-width: 400px;
+        }
+        select, button {
+            padding: 10px 15px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+        }
+        select {
+            background-color: #bdc3c7;
+            color: #2c3e50;
+        }
+        .start-btn {
+            background-color: #2ecc71;
+            color: #1a252f;
+            transition: 0.2s;
+            font-size: 18px;
+        }
+        .start-btn:active, .start-btn:hover {
+            background-color: #27ae60;
+            color: white;
+        }
+        
+        /* Tento kontejner se přepíná do režimu celé obrazovky */
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            background-color: #2c3e50;
+        }
+        
+        /* Změny vzhledu, když je hra na celou obrazovku */
+        #game-container:fullscreen {
+            justify-content: center;
+            padding: 0;
+            background-color: #1a252f;
+        }
+        #game-container:fullscreen canvas {
+            max-width: 98vw;
+            max-height: 85vh;
+            border: 2px solid #2ecc71;
+        }
+
+        #score-board {
+            font-size: 24px;
+            font-weight: bold;
+            color: #f1c40f;
+            margin-bottom: 10px;
+            margin-top: 10px;
+        }
+        
+        canvas {
+            background-color: #34495e; 
+            border: 5px solid #2ecc71;
+            box-shadow: 0 0 25px rgba(0,0,0,0.6);
+            border-radius: 8px;
+            width: 95%; 
+            max-width: 600px; 
+            height: auto;
+            aspect-ratio: 1 / 1;
+            touch-action: none; /* Extrémně důležité pro mobily: blokuje posouvání obrazovky tažením */
+            cursor: crosshair;
+        }
+        
+        .instructions {
+            margin-top: 15px;
+            color: #bdc3c7;
+            font-size: 14px;
+            text-align: center;
+            padding: 0 15px;
+            max-width: 500px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Taxi Green Domažlice</h1>
+    
+    <!-- Úvodní Ovládací panel -->
+    <div class="dashboard" id="menu">
+        <label for="difficulty" style="font-size: 14px;">Rychlost (Složitost): </label>
+        <select id="difficulty">
+            <option value="1000">1 - Výletní tempo (Ještě pomalejší)</option>
+            <option value="600">2 - Běžný provoz</option>
+            <option value="350" selected>3 - Rychlá jízda (Střední)</option>
+            <option value="150">4 - Spěchající dispečink (Rychlé)</option>
+            <option value="80">5 - Závodník (Extrémní)</option>
+        </select>
+        <button class="start-btn" onclick="startFullscreenGame()">Start 🚀</button>
+    </div>
+    
+    <!-- Samotná Hra (Tato část se zvětší na celý displej) -->
+    <div id="game-container">
+        <div id="score-board">Zákazníci: <span id="score">0</span></div>
+        <canvas id="gameCanvas" width="600" height="600"></canvas>
+    </div>
+
+    <div class="instructions">
+        <p>📱 <strong>Mobil:</strong> Ťukni na herní plochu <strong>vzhledem k autu</strong> (např. ťukni nad auto a ono pojede nahoru).</p>
+        <p>🔄 <strong>Couvání:</strong> Pokud ťukneš za auto, otočí se zpět (pozor na srážku s vlastními zákazníky!).</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const gameContainer = document.getElementById("game-container");
+        
+        const gridSize = 30; 
+        let snake = [];
+        let dx = gridSize; 
+        let dy = 0;        
+        let foodX;
+        let foodY;
+        let score = 0;
+        let changingDirection = false;
+        let gameTimer;
+        let isGameRunning = false;
+
+        // Spustí hru a přepne do režimu celé obrazovky (Fullscreen)
+        function startFullscreenGame() {
+            // Funkce pro Fullscreen (funguje na většině moderních prohlížečů a mobilů)
+            if (gameContainer.requestFullscreen) {
+                gameContainer.requestFullscreen().catch(err => console.log(err));
+            } else if (gameContainer.webkitRequestFullscreen) { /* Safari/iOS */
+                gameContainer.webkitRequestFullscreen();
+            } else if (gameContainer.msRequestFullscreen) { /* IE11 */
+                gameContainer.msRequestFullscreen();
+            }
+
+            startGame();
+        }
+
+        function startGame() {
+            clearTimeout(gameTimer);
+            snake = [
+                {x: 300, y: 300} // Start uprostřed
+            ];
+            dx = gridSize;
+            dy = 0;
+            score = 0;
+            document.getElementById('score').innerHTML = score;
+            changingDirection = false;
+            isGameRunning = true;
+            createFood();
+            main();
+        }
+
+        function main() {
+            if (!isGameRunning) return;
+
+            if (hasGameEnded()) {
+                isGameRunning = false;
+                // Ukončíme fullscreen při prohře
+                if (document.exitFullscreen) {
+                    document.exitFullscreen().catch(err => console.log(err));
+                }
+                alert("Konec jízdy! Zvládl jsi nabrat " + score + " zákazníků. Uprav rychlost a zkus to znovu.");
+                return;
+            }
+            
+            changingDirection = false;
+            
+            let currentSpeed = parseInt(document.getElementById("difficulty").value);
+            
+            gameTimer = setTimeout(function onTick() {
+                clearCanvas();
+                drawFood(); 
+                advanceSnake(); 
+                drawSnake(); 
+                main();
+            }, currentSpeed); 
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Vykreslení mřížky ulic
+            ctx.strokeStyle = '#34495e';
+            ctx.lineWidth = 1;
+            for(let i = 0; i <= canvas.width; i += gridSize) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+        }
+
+        function drawSnake() {
+            for (let i = snake.length - 1; i >= 0; i--) {
+                if (i === 0) {
+                    drawCar(snake[i].x, snake[i].y);
+                } else {
+                    drawPassenger(snake[i].x, snake[i].y);
+                }
+            }
+        }
+
+        function drawCar(x, y) {
+            ctx.save();
+            ctx.translate(x + gridSize/2, y + gridSize/2);
+            
+            let angle = 0;
+            if (dx === gridSize) angle = 0; 
+            else if (dx === -gridSize) angle = Math.PI; 
+            else if (dy === gridSize) angle = Math.PI / 2; 
+            else if (dy === -gridSize) angle = -Math.PI / 2; 
+            
+            ctx.rotate(angle);
+            
+            // Kola
+            ctx.fillStyle = '#111';
+            ctx.fillRect(-10, -14, 6, 4); 
+            ctx.fillRect(6, -14, 6, 4);   
+            ctx.fillRect(-10, 10, 6, 4);  
+            ctx.fillRect(6, 10, 6, 4);    
+            
+            // Zelený základ
+            ctx.fillStyle = '#2ecc71';
+            ctx.beginPath();
+            ctx.roundRect(-14, -12, 28, 24, 4); 
+            ctx.fill();
+            
+            // Stříbrná střecha
+            ctx.fillStyle = '#bdc3c7';
+            ctx.fillRect(-10, -8, 24, 16);
+            
+            // Skla
+            ctx.fillStyle = '#1a252f';
+            ctx.fillRect(4, -7, 4, 14); 
+            ctx.fillRect(-8, -7, 3, 14); 
+            
+            // Majáček TAXI
+            ctx.fillStyle = '#f1c40f';
+            ctx.fillRect(-2, -4, 5, 8);
+            
+            ctx.restore();
+        }
+
+        function drawPassenger(x, y) {
+            let cx = x + gridSize/2;
+            let cy = y + gridSize/2;
+            
+            ctx.fillStyle = '#3498db'; 
+            ctx.beginPath();
+            ctx.arc(cx, cy + 4, 7, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#f1c40f'; 
+            ctx.beginPath();
+            ctx.arc(cx, cy - 5, 5, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        function advanceSnake() {
+            const head = {x: snake[0].x + dx, y: snake[0].y + dy};
+            snake.unshift(head); 
+
+            const didEatFood = snake[0].x === foodX && snake[0].y === foodY;
+            if (didEatFood) {
+                score++;
+                document.getElementById('score').innerHTML = score;
+                createFood(); 
+            } else {
+                snake.pop(); 
+            }
+        }
+
+        function randomGrid(min, max) {
+            return Math.round((Math.random() * (max - min) + min) / gridSize) * gridSize;
+        }
+
+        function createFood() {
+            foodX = randomGrid(0, canvas.width - gridSize);
+            foodY = randomGrid(0, canvas.height - gridSize);
+            
+            snake.forEach(function isFoodOnSnake(part) {
+                if (part.x === foodX && part.y === foodY) createFood();
+            });
+        }
+
+        function drawFood() {
+            let cx = foodX + gridSize/2;
+            let cy = foodY + gridSize/2;
+
+            ctx.fillStyle = '#e74c3c'; 
+            ctx.beginPath();
+            ctx.arc(cx, cy + 4, 7, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#f1c40f';
+            ctx.beginPath();
+            ctx.arc(cx, cy - 5, 5, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.strokeStyle = '#e74c3c';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(cx - 6, cy + 2);
+            ctx.lineTo(cx - 10, cy - 4);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(cx + 6, cy + 2);
+            ctx.lineTo(cx + 10, cy - 4);
+            ctx.stroke();
+        }
+
+        function hasGameEnded() {
+            // Náraz do vlastních pasažérů
+            // Začínáme od indexu 1 (aby se auto po U-Turnu srazilo už s prvním zákazníkem)
+            for (let i = 1; i < snake.length; i++) {
+                if (snake[i].x === snake[0].x && snake[i].y === snake[0].y) return true;
+            }
+            // Náraz do hraniční zdi
+            const hitLeftWall = snake[0].x < 0;
+            const hitRightWall = snake[0].x >= canvas.width;
+            const hitToptWall = snake[0].y < 0;
+            const hitBottomWall = snake[0].y >= canvas.height;
+            return hitLeftWall || hitRightWall || hitToptWall || hitBottomWall;
+        }
+
+        // --- NOVÉ NEVIDITELNÉ OVLÁDÁNÍ RELATIVNĚ K AUTU ---
+        
+        function handleTap(event) {
+            // Zabráníme zobrazení menu nebo scrollování při klikání
+            event.preventDefault(); 
+            
+            if (changingDirection || !isGameRunning) return;
+
+            // Získání souřadnic kliknutí / dotyku
+            let rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+
+            if (event.type === 'touchstart') {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            // Přepočet souřadnic kliknutí vůči logické velikosti plátna (600x600)
+            let scaleX = canvas.width / rect.width;
+            let scaleY = canvas.height / rect.height;
+            let tapX = (clientX - rect.left) * scaleX;
+            let tapY = (clientY - rect.top) * scaleY;
+
+            // Získání aktuální logické pozice středu auta
+            let carX = snake[0].x + gridSize / 2;
+            let carY = snake[0].y + gridSize / 2;
+
+            // Výpočet rozdílu mezi autem a místem kliknutí
+            let diffX = tapX - carX;
+            let diffY = tapY - carY;
+
+            // Zjistíme, jestli uživatel kliknul více do strany, nebo spíše nahoru/dolů
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                if (diffX > 0) setDirection('RIGHT'); 
+                else setDirection('LEFT');
+            } else {
+                if (diffY > 0) setDirection('DOWN'); 
+                else setDirection('UP');
+            }
+        }
+
+        // Zaregistrujeme dotyky a kliknutí myší přímo na plochu hry
+        canvas.addEventListener('touchstart', handleTap, {passive: false});
+        canvas.addEventListener('mousedown', handleTap);
+
+
+        function setDirection(direction) {
+            // Bylo odstraněno omezení zákazu protisměru, takže teď auto MŮŽE couvnout o 180 stupňů.
+            // (Pokud má ale zákazníky, ihned to vyvolá konec hry v hasGameEnded).
+            
+            if (direction === 'LEFT') { dx = -gridSize; dy = 0; changingDirection = true; }
+            if (direction === 'UP') { dx = 0; dy = -gridSize; changingDirection = true; }
+            if (direction === 'RIGHT') { dx = gridSize; dy = 0; changingDirection = true; }
+            if (direction === 'DOWN') { dx = 0; dy = gridSize; changingDirection = true; }
+        }
+
+        // OVLÁDÁNÍ KLÁVESNICÍ (PC podpora zůstává)
+        document.addEventListener("keydown", function(event) {
+            if (!isGameRunning) return;
+            const LEFT_KEY = 37;
+            const UP_KEY = 38;
+            const RIGHT_KEY = 39;
+            const DOWN_KEY = 40;
+            
+            if (event.keyCode === LEFT_KEY) setDirection('LEFT');
+            if (event.keyCode === UP_KEY) setDirection('UP');
+            if (event.keyCode === RIGHT_KEY) setDirection('RIGHT');
+            if (event.keyCode === DOWN_KEY) setDirection('DOWN');
+            
+            // Zabrání rolování stránky při stisku šipek
+            if([37, 38, 39, 40, 32].indexOf(event.keyCode) > -1) {
+                event.preventDefault();
+            }
+        });
+
+        // Prvotní vykreslení
+        clearCanvas();
+        drawFood();
+        drawCar(300, 300);
+    </script>
+</body>
+</html>
